@@ -1,0 +1,25 @@
+fullnameOverride: ${release_name}
+executor: "LocalKubernetesExecutor"
+postgresql:
+  enabled: true
+ingress:
+  web:
+    ingressClassName: alb
+    enabled: true
+    annotations:
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/group.name: "default-group"
+      alb.ingress.kubernetes.io/scheme: "internet-facing"
+      alb.ingress.kubernetes.io/target-type: "ip"
+      alb.ingress.kubernetes.io/group.order: "150"
+      alb.ingress.kubernetes.io/certificate-arn: ${cert_arn}
+      external-dns.alpha.kubernetes.io/hostname: ${release_name}.${domain}
+    hosts:
+      - ${release_name}.${domain}
+    path: "/*"
+
+createUserJob:
+  useHelmHooks: false
+migrateDatabaseJob:
+  useHelmHooks: false

@@ -1,0 +1,22 @@
+fullnameOverride: ${release_name}
+serviceAccount:
+  create: true
+  name: ${sa_name}
+  annotations:
+    eks.amazonaws.com/role-arn: ${irsa_role}
+
+controller:
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/group.name: ${release_name}
+      alb.ingress.kubernetes.io/scheme: "internet-facing"
+      alb.ingress.kubernetes.io/target-type: "ip"
+      alb.ingress.kubernetes.io/group.order: "150"
+      alb.ingress.kubernetes.io/certificate-arn: ${cert_arn}
+      external-dns.alpha.kubernetes.io/hostname: ${release_name}.${domain}
+    hostName: ${release_name}.${domain}
+    path: "/*"

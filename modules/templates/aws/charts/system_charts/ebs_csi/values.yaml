@@ -1,0 +1,16 @@
+fullnameOverride: ${release_name}
+controller:
+  serviceAccount:
+    name: ${sa_name}
+    create: true
+    annotations:
+      eks.amazonaws.com/role-arn: ${irsa_role}
+
+storageClasses:
+ - name: ebs-sc
+   annotations:
+     storageclass.kubernetes.io/is-default-class: "true"
+   volumeBindingMode: WaitForFirstConsumer
+   reclaimPolicy: Retain
+   parameters:
+     encrypted: "true"

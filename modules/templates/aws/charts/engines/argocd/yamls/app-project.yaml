@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: main-proj
+  namespace: ${namespace}
+spec:
+  description: Argocd main AppProject
+  sourceRepos:
+%{ if length(github_org) > 0 ~}
+    - "git@github.com:${github_org}/*"
+%{ endif ~}
+%{ if length(ecr_registry) > 0 ~}
+    - ${ecr_registry}
+%{ endif ~}
+%{ if length(github_org) == 0 && length(ecr_registry) == 0 ~}
+    - "*"
+%{ endif ~}
+  destinations:
+    - name: in-cluster
+      server: https://kubernetes.default.svc
+      namespace: '*'
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  clusterResourceBlacklist: []
+  namespaceResourceBlacklist: []

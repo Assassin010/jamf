@@ -1,0 +1,19 @@
+fullnameOverride: ${release_name}
+env:
+  AWS_REGION: ${region}
+  AWS_DEFAULT_REGION: ${region}
+serviceAccount:
+  create: true
+  name: ${sa_name}
+  annotations:
+    eks.amazonaws.com/role-arn: ${irsa_role}
+podSecurityContext:
+  fsGroup: 65534
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+installCRDs: true

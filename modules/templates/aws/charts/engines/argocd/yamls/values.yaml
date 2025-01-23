@@ -1,0 +1,420 @@
+fullnameOverride: ${release_name}
+crds:
+  install: true
+%{ if sso_enabled ~}
+dex:
+  enabled: true
+%{ if argo_workflows_sso_enabled ~}
+  env:
+    - name: ARGO_WORKFLOWS_SSO_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: ${argocd_github_sso_secret}
+          key: clientSecret
+%{ endif ~}
+configs:
+  params:
+    server.insecure: true
+  cm:
+    create: true
+    url: "https://${hostname}"
+    exec.enabled: true
+    dex.config: |
+      connectors:
+        - type: github
+          id: github
+          name: GitHub
+          config:
+            clientID: ${format("$%s:clientId", argocd_github_sso_secret)}
+            clientSecret: ${format("$%s:clientSecret", argocd_github_sso_secret)}
+            orgs:
+            - name: ${github_org}
+%{ if argo_workflows_sso_enabled ~}
+      staticClients:
+      - id: ${format("$%s:clientId", argocd_github_sso_secret)}
+        name: Argo Workflow
+        redirectURIs:
+          - https://${argo_workflows_hostname}/oauth2/callback
+        secretEnv: ARGO_WORKFLOWS_SSO_CLIENT_SECRET
+%{ endif ~}
+  rbac:
+    create: true
+    policy.default: 'role:readonly'
+    policy.csv: |
+      p, role:org-admin, applications, *, */*, allow
+      p, role:org-admin, clusters, *, *, allow
+      p, role:org-admin, repositories, *, *, allow
+      p, role:org-admin, projects, *, *, allow
+      p, role:org-admin, accounts, get, *, allow
+      p, role:org-admin, accounts, list, *, allow
+      p, role:org-admin, accounts, create, *, allow
+      p, role:org-admin, logs, get, *, allow
+      p, role:org-admin, logs, list, *, allow
+      p, role:org-admin, exec, get, */*, allow
+      p, role:org-admin, exec, create, */*, allow
+      g, ${github_org}:${github_admins_team}, role:org-admin
+    scopes: "[groups]"
+%{ endif ~}
+#redis-ha:
+#  enabled: true
+server:
+  serviceAccount:
+    create: true
+    name: ${sa_name}
+%{ if ecr_reg_enabled ~}
+    annotations:
+      eks.amazonaws.com/role-arn: ${ecr_role_arn}
+%{ endif ~}
+  ingress:
+    enabled: true
+    ingressClassName: alb
+    annotations:
+      alb.ingress.kubernetes.io/group.name: "argo"
+      alb.ingress.kubernetes.io/backend-protocol: HTTP
+      alb.ingress.kubernetes.io/healthcheck-interval-seconds: "30"
+      alb.ingress.kubernetes.io/healthcheck-path: /
+      alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+      alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+      alb.ingress.kubernetes.io/healthcheck-timeout-seconds: "10"
+      alb.ingress.kubernetes.io/healthy-threshold-count: "2"
+      alb.ingress.kubernetes.io/success-codes: "200"
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+    hostname: ${hostname}
+  extraArgs:
+    - --insecure
+%{ if argo_rollouts_extension_enable ~}
+  extensions:
+    enabled: true
+    extensionList:
+      - name: rollout-extension
+        env:
+          - name: EXTENSION_URL
+            value: ${extension_url}
+%{ endif ~}
+repoServer:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+%{ if argocd_slack_enabled ~}
+notifications:
+  enabled: true
+  secret:
+    create: false
+    name: ${argocd_slack_app_secret}
+  argocdUrl: "https://${hostname}"
+  notifiers:
+    service.slack: |
+      token: $slack-token
+  subscriptions:
+    - recipients:
+      - slack:${argocd_slack_channel}
+      triggers:
+%{ if possitive_feedback ~}
+      - on-deployed
+      - on-sync-running
+%{ endif ~}
+%{ if negative_feedback ~}
+      - on-sync-failed
+      - on-sync-status-unknown
+      - on-health-degraded
+%{ endif ~}
+  templates:
+    template.app-deployed: |
+      message: |
+        {{if eq .serviceType "slack"}}:white_check_mark:{{end}} Application '{{.app.metadata.name}}' is now running new version of deployments manifests.
+      slack:
+        attachments: |-
+          [{
+            "title": "{{.app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#18be52",
+            "fields": [
+            {
+              "title": "Health Status",
+              "value": "{{.app.status.health.status}}",
+              "short": true
+            },
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL | replace "git@github.com:" "" | replace ".git" "" }}",
+              "short": true
+            },
+            {
+              "title": "Revision",
+              "value": "{{.app.spec.source.targetRevision}}",
+              "short": true
+            },
+            {
+              "title": "Commit",
+              "value": "{{substr 0 7 .app.status.sync.revision}}",
+              "short": true
+            },
+            {
+              "title": "Trigger Cause",
+              "value": "app-deployed",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+
+    template.app-sync-running: |
+      message: |
+        {{if eq .serviceType "slack"}}:rocket:{{end}} The sync operation of application '{{.app.metadata.name}}' has started at {{.app.status.operationState.startedAt}}.
+      slack:
+        attachments: |-
+          [{
+            "title": "{{.app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#0DADEA",
+            "fields": [
+            {
+              "title": "Health Status",
+              "value": "{{.app.status.health.status}}",
+              "short": true
+            },
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL | replace "git@github.com:" "" | replace ".git" "" }}",
+              "short": true
+            },
+            {
+              "title": "Revision",
+              "value": "{{.app.spec.source.targetRevision}}",
+              "short": true
+            },
+            {
+              "title": "Commit",
+              "value": "{{substr 0 7 .app.status.sync.revision}}",
+              "short": true
+            },
+            {
+              "title": "Trigger Cause",
+              "value": "app-sync-running",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+
+    template.app-sync-failed: |
+      message: |
+        {{if eq .serviceType "slack"}}:exclamation:{{end}} Application '{{.app.metadata.name}}' sync failed: {{.app.status.operationState.message}}.
+      slack:
+        attachments: |-
+          [{
+            "title": "{{.app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#E96D76",
+            "fields": [
+            {
+              "title": "Health Status",
+              "value": "{{.app.status.health.status}}",
+              "short": true
+            },
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL | replace "git@github.com:" "" | replace ".git" "" }}",
+              "short": true
+            },
+            {
+              "title": "Revision",
+              "value": "{{.app.spec.source.targetRevision}}",
+              "short": true
+            },
+            {
+              "title": "Commit",
+              "value": "{{substr 0 7 .app.status.sync.revision}}",
+              "short": true
+            },
+            {
+              "title": "Trigger Cause",
+              "value": "app-sync-failed",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+
+    template.app-sync-status-unknown: |
+      message: |
+        {{if eq .serviceType "slack"}}:exclamation:{{end}} Application '{{.app.metadata.name}}' sync is {{.app.status.sync.status}}.
+        {{if ne .serviceType "slack"}}
+        {{range $c := .app.status.conditions}}
+            * {{$c.message}}
+        {{end}}
+        {{end}}
+      slack:
+        attachments: |-
+          [{
+            "title": "{{.app.metadata.name}}",
+            "title_link":"{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#f4c030",
+            "fields": [
+            {
+              "title": "Health Status",
+              "value": "{{.app.status.health.status}}",
+              "short": true
+            },
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL | replace "git@github.com:" "" | replace ".git" "" }}",
+              "short": true
+            },
+            {
+              "title": "Revision",
+              "value": "{{.app.spec.source.targetRevision}}",
+              "short": true
+            },
+            {
+              "title": "Commit",
+              "value": "{{substr 0 7 .app.status.sync.revision}}",
+              "short": true
+            },
+            {
+              "title": "Trigger Cause",
+              "value": "app-sync-status-unknown",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+
+    template.app-health-degraded: |
+      message: |
+        {{if eq .serviceType "slack"}}:x:{{end}} Application '{{.app.metadata.name}}' has {{.app.status.health.status}}.
+      slack:
+        attachments: |-
+          [{
+            "title": "{{.app.metadata.name}}",
+            "title_link": "{{.context.argocdUrl}}/applications/{{.app.metadata.name}}",
+            "color": "#f4c030",
+            "fields": [
+            {
+              "title": "Health Status",
+              "value": "{{.app.status.health.status}}",
+              "short": true
+            },
+            {
+              "title": "Sync Status",
+              "value": "{{.app.status.sync.status}}",
+              "short": true
+            },
+            {
+              "title": "Repository",
+              "value": "{{.app.spec.source.repoURL | replace "git@github.com:" "" | replace ".git" "" }}",
+              "short": true
+            },
+            {
+              "title": "Revision",
+              "value": "{{.app.spec.source.targetRevision}}",
+              "short": true
+            },
+            {
+              "title": "Commit",
+              "value": "{{substr 0 7 .app.status.sync.revision}}",
+              "short": true
+            },
+            {
+              "title": "Trigger Cause",
+              "value": "app-health-degraded",
+              "short": true
+            }
+            {{range $index, $c := .app.status.conditions}}
+            {{if not $index}},{{end}}
+            {{if $index}},{{end}}
+            {
+              "title": "{{$c.type}}",
+              "value": "{{$c.message}}",
+              "short": true
+            }
+            {{end}}
+            ]
+          }]
+
+  triggers:
+    trigger.on-deployed: |
+      - description: Application is synced and healthy. Triggered once per commit.
+        send:
+        - app-deployed
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Succeeded'] and app.status.health.status == 'Healthy'
+    trigger.on-sync-running: |
+      - description: Application is being synced
+        send:
+        - app-sync-running
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Running']
+    trigger.on-sync-failed: |
+      - description: Application syncing has failed
+        send:
+        - app-sync-failed
+        when: app.status.operationState != nil and app.status.operationState.phase in ['Error', 'Failed']
+    trigger.on-sync-status-unknown: |
+      - description: Application status is 'Unknown'
+        send:
+        - app-sync-status-unknown
+        when: app.status.sync.status == 'Unknown' and time.Now().Sub(time.Parse(app.status.reconciledAt)).Minutes() >= 30
+    trigger.on-health-degraded: |
+      - description: Application has degraded
+        send:
+        - app-health-degraded
+        when: app.status.health.status == 'Degraded'
+%{ endif ~}

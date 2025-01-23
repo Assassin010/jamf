@@ -1,0 +1,9 @@
+fullnameOverride: ${release_name}
+clusterName: ${cluster_name}
+region: ${region}
+vpcId: ${vpc_id}
+serviceAccount:
+  create: true
+  name: ${sa_name}
+  annotations:
+    eks.amazonaws.com/role-arn: ${irsa_role}

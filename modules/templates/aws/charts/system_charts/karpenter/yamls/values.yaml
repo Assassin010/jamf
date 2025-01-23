@@ -1,0 +1,10 @@
+fullnameOverride: ${release_name}
+region: ${region}
+settings:
+  clusterName: ${cluster_name}
+  clusterEndpoint: ${cluster_endpoint}
+  interruptionQueueName: ${karpenter_queue_name}
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: ${irsa_role}

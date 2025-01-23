@@ -1,0 +1,11 @@
+fullnameOverride: ${release_name}
+replicaCount: 1
+autoDiscovery:
+  clusterName: ${cluster_name}
+awsRegion: ${region}
+rbac:
+  create: true
+  serviceAccount:
+    name: ${sa_name}
+    annotations:
+      eks.amazonaws.com/role-arn: ${irsa_role}

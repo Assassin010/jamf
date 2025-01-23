@@ -1,0 +1,62 @@
+grafana:
+  enabled: true
+  grafana.ini:
+    server:
+      root_url: https://${release_name}.${domain}
+    auth.github:
+      enabled: ${github_oauth_enabled}
+      allow_sign_up: true
+      client_id: ${github_oauth_client_id}
+      client_secret: ${github_oauth_client_secret}
+      scopes: user:email,read:org
+      auth_url: https://github.com/login/oauth/authorize
+      token_url: https://github.com/login/oauth/access_token
+      api_url: https://api.github.com/user
+      allowed_organizations: ${github_oauth_allowed_organizations}
+      team_ids: ${github_oauth_allowed_team_ids}
+      allowed_domains: ${github_oauth_allowed_domains}
+  ingress:
+    enabled: ${ingress_enabled}
+    ingressClassName: alb
+    annotations:
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+      alb.ingress.kubernetes.io/ssl-redirect: "443"
+      alb.ingress.kubernetes.io/group.name: "default-group"
+      alb.ingress.kubernetes.io/scheme: "internet-facing"
+      alb.ingress.kubernetes.io/target-type: "ip"
+      alb.ingress.kubernetes.io/certificate-arn: ${cert_arn}
+      external-dns.alpha.kubernetes.io/hostname: ${release_name}.${domain}
+    hosts:
+      - ${release_name}.${domain}
+    path: /
+    pathType: Prefix
+%{ if jaeger_enabled ~}
+  datasources:
+    additional-datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: jaeger
+          type: jaeger
+          uid: my-jaeger
+          access: browser
+          url: http://jaeger-query.jaeger
+          isDefault: false
+          version: 1
+          editable: true
+          basicAuth: false
+%{ endif ~}
+prometheus:
+  enabled: true
+  alertmanager:
+    persistentVolume:
+      enabled: true
+      size: ${prometheus_alert_manager_volume_size}
+  server:
+    persistentVolume:
+      enabled: true
+      size: ${prometheus_server_volume_size}
+loki:
+  persistence:
+    enabled: true
+  storageClassName: gp2
+  size: ${loki_volume_size}

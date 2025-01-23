@@ -1,0 +1,34 @@
+apiVersion: karpenter.k8s.aws/v1beta1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  amiFamily: AL2
+  role: ${role_name}
+  detailedMonitoring: true
+
+  metadataOptions:
+    httpEndpoint: enabled
+    httpProtocolIPv6: disabled
+    httpPutResponseHopLimit: 2
+    httpTokens: required
+
+  blockDeviceMappings:
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 40Gi
+        volumeType: gp3
+        encrypted: true
+        deleteOnTermination: true
+
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: ${cluster_name}/public
+  securityGroupSelectorTerms:
+    - tags:
+        kubernetes.io/cluster/${cluster_name}: owned
+  userData: |
+    echo "Hello world"
+  tags:
+    karpenter.sh/discovery: ${cluster_name}
+    Name: from-karpenter

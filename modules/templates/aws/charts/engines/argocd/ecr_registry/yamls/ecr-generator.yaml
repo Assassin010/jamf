@@ -1,0 +1,26 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: ecr-reg
+  namespace: ${namespace}
+spec:
+  refreshInterval: 30m
+  target:
+    name: argocd-ecr-sync
+    template:
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: repository
+      data:
+        name: ${ecr_registry_name}
+        type: helm
+        enableOCI: 'true'
+        url: ${ecr_url}
+        password: '{{ .password }}'
+        username: '{{ .username }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: ${kind}
+          name: ${name}
